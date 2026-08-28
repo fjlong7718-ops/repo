@@ -1,22 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>World Clocks — 多时区数字时钟</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#9aa4b2;--accent:#38bdf8}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,Segoe UI,system-ui,Arial;background:linear-gradient(180deg,#071028 0%, #081428 100%);color:#e6eef6;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .wrap{max-width:980px;width:100%}
+    header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;gap:12px}
+    h1{font-size:20px;margin:0}
+    .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .controls input[type="text"]{padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+    .controls button{padding:8px 12px;border-radius:8px;border:0;background:var(--accent);color:#042028;cursor:pointer}
+    .small{font-size:13px;color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));padding:14px;border-radius:10px;border:1px solid rgba(255,255,255,0.03)}
+    .zone{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+    .zone .meta{display:flex;flex-direction:column}
+    .zone .name{font-weight:600}
+    .time{font-variant-numeric:tabular-nums;font-size:28px;margin-top:6px}
+    .tz-info{font-size:12px;color:var(--muted);margin-top:6px}
+    .remove{background:transparent;border:0;color:var(--muted);cursor:pointer;font-size:14px}
+    footer{margin-top:14px;color:var(--muted);font-size:13px}
+    .options{display:flex;gap:8px;align-items:center}
+    .checkbox{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px}
+    .empty{color:var(--muted);padding:18px;border-radius:8px;border:1px dashed rgba(255,255,255,0.03);text-align:center}
+    @media (max-width:520px){.time{font-size:22px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>World Clocks</h1>
+        <div class="small">显示不同 IANA 时区的当前时间（支持夏令时），可添加或删除时区。</div>
+      </div>
 
-  <!DOCTYPE html>
-  <html lang="en">
-    <head>
-      
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>PCBasic</title>
-      <meta name="description" content="Generate personalized user journeys and intuitive website navigation to enhance user experience and streamline site interactions for businesses." />
-      <meta name="robots" content="noindex, nofollow" />
-      <style>html, body { height: 100%; margin: 0; } #root { height: 100%; }</style>
-      
-    </head>
+      <div class="controls">
+        <input id="tzInput" list="tzList" placeholder="输入或选择时区（例如 Asia/Shanghai）" />
+        <datalist id="tzList">
+          <option>UTC</option>
+          <option>Asia/Shanghai</option>
+          <option>Asia/Tokyo</option>
+          <option>Europe/London</option>
+          <option>Europe/Paris</option>
+          <option>America/New_York</option>
+          <option>America/Los_Angeles</option>
+          <option>Australia/Sydney</option>
+          <option>Asia/Kolkata</option>
+        </datalist>
+        <button id="addBtn">添加</button>
+        <div class="options">
+          <label class="checkbox"><input type="checkbox" id="hour12"> 12小时制</label>
+        </div>
+      </div>
+    </header>
 
-    <body>
-      
-      <div id="root"></div>
-      <script type="module" src="/src/main.tsx"></script>
-      
-    </body>
-  </html>
-  
+    <main>
+      <div id="grid" class="grid"></div>
+      <div id="empty" class="empty" style="display:none">当前没有时区。请通过上方输入框添加一个时区（例：Asia/Shanghai）。</div>
+    </main>
+
+    <footer>
+      <span class="small">示例时区会自动显示本地与 UTC。时区名称使用 IANA 标准</span>
+    </footer>
+  </div>
+
+  <script>
+    // 默认显示的一些时区（本地会以 Intl 得到）
+    const defaultZones = [
+      {id: 'local', label: 'Local', tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'},
+      {id: 'utc', label: 'UTC', tz: 'UTC'},
+      {id: 'ny', label: 'New York', tz: 'America/New_York'},
+      {id: 'london', label: 'London', tz: 'Europe/London'},
+      {id: 'tokyo', label: 'Tokyo', tz: 'Asia/Tokyo'},
+      {id: 'sydney', label: 'Sydney', tz: 'Australia/Sydney'}
+    ];
+
+    const grid = document.getElementById('grid');
+    const emptyMsg = document.getElementById('empty');
+    const addBtn = document.getElementById('addBtn');
+    const tzInput = document.getElementById('tzInput');
+    const hour12Checkbox = document.getElementById('hour12');
+
+    let zones = loadZones() || defaultZones.slice(0,3); // 如果没有存储，先放前三个（local, UTC, New York）默认
+    if(!loadZones()) {
+      // initialize sensible defaults
+      zones = defaultZones;
+      saveZones();
+    }
+
+    function saveZones(){
+      try{ localStorage.setItem('world-clocks-zones', JSON.stringify(zones)); }catch(e){}
+    }
+    function loadZones(){
+      try{ return JSON.parse(localStorage.getItem('world-clocks-zones')||'null'); }catch(e){return null;}
+    }
+
+    function makeCard(zone){
+      const card = document.createElement('section');
+      card.className = 'card';
+      card.dataset.tz = zone.tz;
+
+      const top = document.createElement('div');
+      top.className = 'zone';
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = zone.label || zone.tz;
+      const timeEl = document.createElement('div');
+      timeEl.className = 'time';
+      timeEl.textContent = '—:—:—';
+      const info = document.createElement('div');
+      info.className = 'tz-info';
+      info.textContent = zone.tz;
+
+      meta.appendChild(name);
+      meta.appendChild(timeEl);
+      meta.appendChild(info);
+
+      const actions = document.createElement('div');
+      actions.style.textAlign = 'right';
+      if(zone.id !== 'local'){ // 不允许删除本地（可改）
+        const rm = document.createElement('button');
+        rm.className = 'remove';
+        rm.title = 'Remove timezone';
+        rm.textContent = '删除';
+        rm.addEventListener('click', () => {
+          zones = zones.filter(z => z !== zone);
+          saveZones();
+          render();
+        });
+        actions.appendChild(rm);
+      } else {
+        const badge = document.createElement('div');
+        badge.className = 'small';
+        badge.style.color = 'var(--muted)';
+        badge.textContent = '本地时区';
+        actions.appendChild(badge);
+      }
+
+      top.appendChild(meta);
+      top.appendChild(actions);
+      card.appendChild(top);
+
+      // attach elements for update
+      card._timeEl = timeEl;
+      card._nameEl = name;
+      card._infoEl = info;
+
+      return card;
+    }
+
+    function render(){
+      grid.innerHTML = '';
+      if(zones.length === 0){
+        emptyMsg.style.display = 'block';
+      } else {
+        emptyMsg.style.display = 'none';
+      }
+      for(const z of zones){
+        const c = makeCard(z);
+        grid.appendChild(c);
+      }
+      updateOnce(); // immediate update
+    }
+
+    function formatForZone(date, tz, hour12){
+      // Use Intl.DateTimeFormat for reliable timezone and DST handling
+      try{
+        const opt = {
+          timeZone: tz,
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          year:'numeric', month:'short', day:'numeric',
+          hour12: !!hour12
+        };
+        const fmt = new Intl.DateTimeFormat(undefined, opt);
+        const parts = fmt.formatToParts(date);
+        // Extract time string and date string more cleanly:
+        const timeParts = parts.filter(p => p.type === 'hour' || p.type === 'minute' || p.type === 'second' || p.type === 'dayPeriod' || p.type === 'literal');
+        const timeStr = timeParts.map(p => p.value).join('');
+        const dateParts = parts.filter(p => p.type === 'year' || p.type==='month' || p.type==='day' || p.type==='literal');
+        const dateStr = dateParts.map(p => p.value).join('').trim();
+        return {time: timeStr, date: dateStr};
+      }catch(e){
+        return null; // invalid timezone
+      }
+    }
+
+    function updateOnce(){
+      const cards = Array.from(grid.children);
+      const now = new Date();
+      const use12 = hour12Checkbox.checked;
+      cards.forEach(card => {
+        const tz = card.dataset.tz;
+        const formatted = formatForZone(now, tz, use12);
+        if(!formatted){
+          card._timeEl.textContent = '无效时区';
+          card._infoEl.textContent = tz + '（无效）';
+        } else {
+          card._timeEl.textContent = formatted.time;
+          card._infoEl.textContent = tz + ' · ' + formatted.date;
+        }
+      });
+    }
+
+    // update every 1s, but try to keep aligned to the real second
+    function startTicker(){
+      function tick(){
+        updateOnce();
+        const now = Date.now();
+        const delay = 1000 - (now % 1000);
+        setTimeout(tick, delay);
+      }
+      tick();
+    }
+
+    addBtn.addEventListener('click', () => {
+      const tz = (tzInput.value || '').trim();
+      if(!tz) return;
+      // Validate using Intl (try creating a formatter)
+      try{
+        // This will throw on invalid timezone in some environments
+        const test = new Intl.DateTimeFormat(undefined, {timeZone: tz});
+        const label = tz.includes('/') ? tz.split('/').pop().replace('_',' ') : tz;
+        // Avoid duplicates
+        if(zones.some(z => z.tz.toLowerCase() === tz.toLowerCase())){
+          alert('该时区已存在：' + tz);
+          return;
+        }
+        const newZone = {id: cryptoRandomId(), label, tz};
+        zones.push(newZone);
+        saveZones();
+        tzInput.value = '';
+        render();
+      }catch(e){
+        alert('无效的时区名称，请使用 IANA 时区，例如 Asia/Shanghai 或 America/New_York');
+      }
+    });
+
+    function cryptoRandomId(){
+      if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
+      return Math.random().toString(36).slice(2,9);
+    }
+
+    // allow pressing Enter in input
+    tzInput.addEventListener('keydown', (e) => {
+      if(e.key === 'Enter') { addBtn.click(); }
+    });
+
+    // re-render when switching 12/24
+    hour12Checkbox.addEventListener('change', () => updateOnce());
+
+    // Initial render and start ticker
+    render();
+    startTicker();
+  </script>
+</body>
+</html>
